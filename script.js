@@ -1,5 +1,18 @@
+// Initialize Quill Editor
+const quill = new Quill("#editor", {
+  theme: "snow",
+  modules: {
+    toolbar: [
+      ["bold", "italic", "underline", "strike"], // Text formatting
+      [{ header: 1 }, { header: 2 }], // Headers
+      [{ list: "ordered" }, { list: "bullet" }], // Lists
+      ["clean"], // Remove formatting
+    ],
+  },
+  placeholder: "Enter text to speak...",
+});
+
 // DOM Elements
-const textInput = document.getElementById("text-input");
 const startButton = document.getElementById("start-button");
 const pauseButton = document.getElementById("pause-button");
 const resumeButton = document.getElementById("resume-button");
@@ -52,12 +65,6 @@ function speakNextWord() {
     // Speak the word
     synth.speak(currentUtterance);
 
-    // Debug: Log the current word and state
-    console.log(`Speaking word: "${word}"`);
-    console.log(
-      `SpeechSynthesis State: paused = ${synth.paused}, speaking = ${synth.speaking}`
-    );
-
     // When the word finishes speaking, wait for the delay and then move to the next word
     currentUtterance.onend = () => {
       const delay = calculateDelay(word); // Calculate delay for the next word
@@ -70,22 +77,48 @@ function speakNextWord() {
           isSpeaking = false;
           isPaused = false;
           updateControls();
-          console.log("Speech finished.");
         }
       }, delay);
     };
   }
 }
 
-// Function to highlight the current word in the textarea
+// Function to highlight the current word in the editor
 function highlightCurrentWord(word) {
-  const text = textInput.value;
+  const text = quill.getText(); // Get plain text from Quill
   const startIndex = text.indexOf(word, currentWordIndex);
-  const endIndex = startIndex + word.length;
 
-  // Highlight the word
-  textInput.setSelectionRange(startIndex, endIndex);
-  textInput.focus();
+  if (startIndex >= 0) {
+    const endIndex = startIndex + word.length;
+
+    // Remove existing highlights
+    quill.formatText(0, quill.getLength(), { background: "" });
+
+    // Highlight the current word
+    quill.formatText(startIndex, word.length, { background: "yellow" });
+
+    // Scroll to the highlighted word smoothly
+    const scrollContainer = document.querySelector(".ql-editor");
+    const wordElement = quill.getBounds(startIndex); // Get the position of the word
+    if (wordElement && scrollContainer) {
+      const wordTop = wordElement.top;
+      const wordBottom = wordElement.bottom;
+      const containerHeight = scrollContainer.clientHeight;
+      const scrollTop = scrollContainer.scrollTop;
+
+      // Calculate the new scroll position
+      if (wordTop < scrollTop) {
+        // Word is above the visible area
+        scrollContainer.scrollTo({ top: wordTop, behavior: "smooth" });
+      } else if (wordBottom > scrollTop + containerHeight) {
+        // Word is below the visible area
+        scrollContainer.scrollTo({
+          top: wordBottom - containerHeight,
+          behavior: "smooth",
+        });
+      }
+    }
+  }
 }
 
 // Function to update control buttons
@@ -112,7 +145,7 @@ function loadVoices() {
 // Event Listeners
 startButton.addEventListener("click", () => {
   if (!isSpeaking) {
-    const text = textInput.value.trim();
+    const text = quill.getText().trim(); // Get plain text from Quill
     if (text !== "") {
       words = text.split(" ");
       currentWordIndex = 0;
@@ -121,7 +154,6 @@ startButton.addEventListener("click", () => {
       wordCountDisplay.textContent = words.length;
       updateControls();
       speakNextWord();
-      console.log("Speech started.");
     }
   }
 });
@@ -132,30 +164,15 @@ pauseButton.addEventListener("click", () => {
     clearTimeout(timeoutId); // Clear the delay timeout
     isPaused = true; // Set paused state
     updateControls();
-    console.log("Speech paused.");
-    console.log(
-      `SpeechSynthesis State: paused = ${synth.paused}, speaking = ${synth.speaking}`
-    );
   }
 });
 
 resumeButton.addEventListener("click", () => {
   if (isSpeaking && isPaused) {
-    console.log("Attempting to resume speech...");
-    console.log(
-      `SpeechSynthesis State before resume: paused = ${synth.paused}, speaking = ${synth.speaking}`
-    );
-
-    // Clear the paused state and resume speaking
     isPaused = false;
     updateControls();
     speakNextWord(); // Continue speaking
     synth.resume();
-
-    console.log("Speech resumed.");
-    console.log(
-      `SpeechSynthesis State after resume: paused = ${synth.paused}, speaking = ${synth.speaking}`
-    );
   }
 });
 
@@ -166,7 +183,6 @@ stopButton.addEventListener("click", () => {
   isPaused = false;
   currentWordIndex = 0;
   updateControls();
-  console.log("Speech stopped.");
 });
 
 speedControl.addEventListener("input", () => {
