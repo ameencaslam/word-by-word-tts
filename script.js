@@ -16,6 +16,7 @@ const synth = window.speechSynthesis;
 let words = [];
 let currentWordIndex = 0;
 let isSpeaking = false;
+let isPaused = false; // Track if speech is paused
 let voices = [];
 let currentUtterance = null;
 let timeoutId = null; // To track the delay timeout
@@ -32,7 +33,7 @@ function calculateDelay(word) {
 
 // Function to speak the next word
 function speakNextWord() {
-  if (currentWordIndex < words.length && isSpeaking) {
+  if (currentWordIndex < words.length && isSpeaking && !isPaused) {
     const word = words[currentWordIndex];
     currentUtterance = new SpeechSynthesisUtterance(word);
 
@@ -51,6 +52,12 @@ function speakNextWord() {
     // Speak the word
     synth.speak(currentUtterance);
 
+    // Debug: Log the current word and state
+    console.log(`Speaking word: "${word}"`);
+    console.log(
+      `SpeechSynthesis State: paused = ${synth.paused}, speaking = ${synth.speaking}`
+    );
+
     // When the word finishes speaking, wait for the delay and then move to the next word
     currentUtterance.onend = () => {
       const delay = calculateDelay(word); // Calculate delay for the next word
@@ -61,14 +68,12 @@ function speakNextWord() {
         } else {
           // Reset when done
           isSpeaking = false;
+          isPaused = false;
           updateControls();
+          console.log("Speech finished.");
         }
       }, delay);
     };
-  } else {
-    // Reset when done
-    isSpeaking = false;
-    updateControls();
   }
 }
 
@@ -86,8 +91,8 @@ function highlightCurrentWord(word) {
 // Function to update control buttons
 function updateControls() {
   startButton.disabled = isSpeaking;
-  pauseButton.disabled = !isSpeaking;
-  resumeButton.disabled = !isSpeaking;
+  pauseButton.disabled = !isSpeaking || isPaused;
+  resumeButton.disabled = !isSpeaking || !isPaused;
   stopButton.disabled = !isSpeaking;
 }
 
@@ -112,32 +117,56 @@ startButton.addEventListener("click", () => {
       words = text.split(" ");
       currentWordIndex = 0;
       isSpeaking = true;
+      isPaused = false;
       wordCountDisplay.textContent = words.length;
       updateControls();
       speakNextWord();
+      console.log("Speech started.");
     }
   }
 });
 
 pauseButton.addEventListener("click", () => {
-  synth.pause();
-  clearTimeout(timeoutId); // Clear the delay timeout
-  isSpeaking = false; // Stop the highlighting and speech
-  updateControls();
+  if (isSpeaking && !isPaused) {
+    synth.pause();
+    clearTimeout(timeoutId); // Clear the delay timeout
+    isPaused = true; // Set paused state
+    updateControls();
+    console.log("Speech paused.");
+    console.log(
+      `SpeechSynthesis State: paused = ${synth.paused}, speaking = ${synth.speaking}`
+    );
+  }
 });
 
 resumeButton.addEventListener("click", () => {
-  synth.resume();
-  isSpeaking = true; // Resume the highlighting and speech
-  speakNextWord();
+  if (isSpeaking && isPaused) {
+    console.log("Attempting to resume speech...");
+    console.log(
+      `SpeechSynthesis State before resume: paused = ${synth.paused}, speaking = ${synth.speaking}`
+    );
+
+    // Clear the paused state and resume speaking
+    isPaused = false;
+    updateControls();
+    speakNextWord(); // Continue speaking
+    synth.resume();
+
+    console.log("Speech resumed.");
+    console.log(
+      `SpeechSynthesis State after resume: paused = ${synth.paused}, speaking = ${synth.speaking}`
+    );
+  }
 });
 
 stopButton.addEventListener("click", () => {
   synth.cancel();
   clearTimeout(timeoutId); // Clear the delay timeout
   isSpeaking = false;
+  isPaused = false;
   currentWordIndex = 0;
   updateControls();
+  console.log("Speech stopped.");
 });
 
 speedControl.addEventListener("input", () => {
