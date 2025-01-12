@@ -47,18 +47,24 @@ function calculateDelay(word) {
 
 // Function to precompute word positions
 function precomputeWordPositions(text) {
-  const words = text.split(" ");
+  const words = [];
   const positions = [];
   let currentIndex = 0;
 
-  words.forEach((word) => {
-    const startIndex = text.indexOf(word, currentIndex);
-    const endIndex = startIndex + word.length;
-    positions.push({ word, start: startIndex, end: endIndex });
-    currentIndex = endIndex + 1; // Move to the next word
+  // Split text by spaces and newlines
+  const tokens = text.split(/(\s+|\n)/); // Split by spaces or newlines
+
+  tokens.forEach((token) => {
+    if (token.trim() !== "") {
+      const startIndex = text.indexOf(token, currentIndex);
+      const endIndex = startIndex + token.length;
+      words.push(token);
+      positions.push({ word: token, start: startIndex, end: endIndex });
+      currentIndex = endIndex;
+    }
   });
 
-  return positions;
+  return { words, positions };
 }
 
 // Function to speak the next word
@@ -162,8 +168,10 @@ startButton.addEventListener("click", () => {
     const text = quill.getText().trim(); // Get plain text from Quill
     if (text !== "") {
       // Precompute word positions
-      wordPositions = precomputeWordPositions(text);
-      words = wordPositions.map((wp) => wp.word); // Extract words from positions
+      const { words: newWords, positions: newPositions } =
+        precomputeWordPositions(text);
+      words = newWords;
+      wordPositions = newPositions;
 
       // Get the current selection
       const selection = quill.getSelection();
