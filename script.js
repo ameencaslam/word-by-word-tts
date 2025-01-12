@@ -26,7 +26,8 @@ const wordCountDisplay = document.getElementById("word-count");
 
 // SpeechSynthesis API
 const synth = window.speechSynthesis;
-let words = [];
+let words = []; // Array of words
+let wordPositions = []; // Array of word positions (start and end indices)
 let currentWordIndex = 0;
 let isSpeaking = false;
 let isPaused = false; // Track if speech is paused
@@ -42,6 +43,22 @@ function calculateDelay(word) {
   const baseDelay = word.length * DELAY_PER_CHAR; // Base delay = char count * delay per char
   const multiplier = parseFloat(delayControl.value); // Delay multiplier from slider
   return baseDelay * multiplier; // Final delay
+}
+
+// Function to precompute word positions
+function precomputeWordPositions(text) {
+  const words = text.split(" ");
+  const positions = [];
+  let currentIndex = 0;
+
+  words.forEach((word) => {
+    const startIndex = text.indexOf(word, currentIndex);
+    const endIndex = startIndex + word.length;
+    positions.push({ word, start: startIndex, end: endIndex });
+    currentIndex = endIndex + 1; // Move to the next word
+  });
+
+  return positions;
 }
 
 // Function to speak the next word
@@ -60,7 +77,7 @@ function speakNextWord() {
     }
 
     // Highlight the current word
-    highlightCurrentWord(word);
+    highlightCurrentWord(currentWordIndex);
 
     // Speak the word
     synth.speak(currentUtterance);
@@ -84,22 +101,19 @@ function speakNextWord() {
 }
 
 // Function to highlight the current word in the editor
-function highlightCurrentWord(word) {
-  const text = quill.getText(); // Get plain text from Quill
-  const startIndex = text.indexOf(word, currentWordIndex);
-
-  if (startIndex >= 0) {
-    const endIndex = startIndex + word.length;
+function highlightCurrentWord(wordIndex) {
+  if (wordIndex < wordPositions.length) {
+    const { start, end } = wordPositions[wordIndex];
 
     // Remove existing highlights
     quill.formatText(0, quill.getLength(), { background: "" });
 
     // Highlight the current word
-    quill.formatText(startIndex, word.length, { background: "yellow" });
+    quill.formatText(start, end - start, { background: "yellow" });
 
     // Scroll to the highlighted word smoothly
     const scrollContainer = document.querySelector(".ql-editor");
-    const wordElement = quill.getBounds(startIndex); // Get the position of the word
+    const wordElement = quill.getBounds(start); // Get the position of the word
     if (wordElement && scrollContainer) {
       const wordTop = wordElement.top;
       const wordBottom = wordElement.bottom;
@@ -147,8 +161,25 @@ startButton.addEventListener("click", () => {
   if (!isSpeaking) {
     const text = quill.getText().trim(); // Get plain text from Quill
     if (text !== "") {
-      words = text.split(" ");
-      currentWordIndex = 0;
+      // Precompute word positions
+      wordPositions = precomputeWordPositions(text);
+      words = wordPositions.map((wp) => wp.word); // Extract words from positions
+
+      // Get the current selection
+      const selection = quill.getSelection();
+      if (selection && selection.index >= 0) {
+        // Find the word at the selection start
+        const selectedWordIndex = wordPositions.findIndex(
+          (wp) => wp.start <= selection.index && wp.end >= selection.index
+        );
+        if (selectedWordIndex >= 0) {
+          currentWordIndex = selectedWordIndex; // Start from the selected word
+        }
+      } else {
+        // If no selection, start from the beginning
+        currentWordIndex = 0;
+      }
+
       isSpeaking = true;
       isPaused = false;
       wordCountDisplay.textContent = words.length;
@@ -194,6 +225,22 @@ speedControl.addEventListener("input", () => {
 
 delayControl.addEventListener("input", () => {
   delayValue.textContent = delayControl.value;
+});
+
+// Move cursor to the start of the first word after pasting
+quill.root.addEventListener("paste", (event) => {
+  // Allow the paste event to complete
+  setTimeout(() => {
+    const text = quill.getText().trim(); // Get plain text from Quill
+    if (text !== "") {
+      // Find the start of the first word
+      const firstWordStart = text.search(/\S/); // Find the first non-whitespace character
+      if (firstWordStart >= 0) {
+        // Move the cursor to the start of the first word
+        quill.setSelection(firstWordStart, 0);
+      }
+    }
+  }, 10); // Small delay to ensure the paste operation is complete
 });
 
 // Load voices when the API is ready
