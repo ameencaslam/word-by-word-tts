@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Word-by-Word TTS</title>
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container mt-5">
+      <div class="card shadow">
+        <div class="card-body">
+          <h1 class="card-title text-center mb-4">Word-by-Word TTS</h1>
+          <textarea
+            id="text-input"
+            class="form-control mb-3"
+            placeholder="Enter text to speak..."
+            rows="5"
+          ></textarea>
+          <div class="controls text-center mb-3">
+            <button id="start-button" class="btn btn-primary">Start</button>
+            <button id="pause-button" class="btn btn-warning" disabled>
+              Pause
+            </button>
+            <button id="resume-button" class="btn btn-success" disabled>
+              Resume
+            </button>
+            <button id="stop-button" class="btn btn-danger" disabled>
+              Stop
+            </button>
+          </div>
+          <div class="settings mb-4">
+            <div class="mb-3">
+              <label for="speed-control" class="form-label"
+                >Speed: <span id="speed-value">1.0</span></label
+              >
+              <input
+                type="range"
+                class="form-range"
+                id="speed-control"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value="1"
+              />
+            </div>
+            <div class="mb-3">
+              <label for="delay-control" class="form-label"
+                >Delay Multiplier: <span id="delay-value">1.0</span></label
+              >
+              <input
+                type="range"
+                class="form-range"
+                id="delay-control"
+                min="0.5"
+                max="3"
+                step="0.1"
+                value="1"
+              />
+            </div>
+            <div class="mb-3">
+              <label for="voice-select" class="form-label">Voice:</label>
+              <select id="voice-select" class="form-select" disabled>
+                <option value="">Loading voices...</option>
+              </select>
+            </div>
+          </div>
+          <div class="status text-center">
+            <p>Word Count: <span id="word-count">0</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
