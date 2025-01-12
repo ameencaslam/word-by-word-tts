@@ -20,6 +20,7 @@ const stopButton = document.getElementById("stop-button");
 const speedControl = document.getElementById("speed-control");
 const speedValue = document.getElementById("speed-value");
 const delayControl = document.getElementById("delay-control");
+const delayInput = document.getElementById("delay-input");
 const delayValue = document.getElementById("delay-value");
 const voiceSelect = document.getElementById("voice-select");
 const wordCountDisplay = document.getElementById("word-count");
@@ -231,8 +232,26 @@ speedControl.addEventListener("input", () => {
   }
 });
 
+// Sync delay slider and input field
 delayControl.addEventListener("input", () => {
   delayValue.textContent = delayControl.value;
+  delayInput.value = delayControl.value;
+});
+
+delayInput.addEventListener("input", () => {
+  const value = parseFloat(delayInput.value);
+  if (!isNaN(value) && value >= 0.1 && value <= 3) {
+    delayControl.value = value;
+    delayValue.textContent = value;
+  }
+});
+
+// Prevent invalid values in the input field
+delayInput.addEventListener("change", () => {
+  const value = parseFloat(delayInput.value);
+  if (isNaN(value) || value < 0.1 || value > 3) {
+    delayInput.value = delayControl.value; // Reset to the slider value
+  }
 });
 
 // Move cursor to the start of the first word after pasting
