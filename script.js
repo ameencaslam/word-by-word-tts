@@ -44,6 +44,11 @@ let timeoutId = null; // delay timer between words
 let inFlightAbort = null; // AbortController for fetch
 let currentUtterance = null;
 
+// Edge (python server) prefetch
+const EDGE_PREFETCH_AHEAD = 2;
+const edgeAudioCache = new Map(); // key: cacheKey(index, voice, rate) -> audioBase64
+const edgePrefetchInFlight = new Map(); // key -> AbortController
+
 // Constants
 const DELAY_PER_CHAR = 100; // Base delay per character (in milliseconds)
 
@@ -137,6 +142,62 @@ function clearInFlight() {
     }
   }
   inFlightAbort = null;
+}
+
+function edgeCacheKey(index, voice, rate) {
+  return `${index}|${voice}|${rate}`;
+}
+
+function clearEdgePrefetch(keepCache = false) {
+  for (const [, ac] of edgePrefetchInFlight) {
+    try {
+      ac.abort();
+    } catch {
+      // ignore
+    }
+  }
+  edgePrefetchInFlight.clear();
+  if (!keepCache) edgeAudioCache.clear();
+}
+
+async function fetchEdgeAudioBase64({ text, voice, rate, signal }) {
+  const res = await fetch(`${TTS_SERVER_BASE}/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice, rate }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`tts HTTP ${res.status}`);
+  const data = await res.json();
+  return data.audioBase64;
+}
+
+function maybeStartEdgePrefetch(fromIndex) {
+  if (voiceMode !== "edge") return;
+  const voice = getSelectedVoiceShortName();
+  if (!voice) return;
+  const rate = parseFloat(speedControl.value);
+
+  for (let i = 1; i <= EDGE_PREFETCH_AHEAD; i++) {
+    const idx = fromIndex + i;
+    if (idx >= words.length) break;
+    const key = edgeCacheKey(idx, voice, rate);
+    if (edgeAudioCache.has(key) || edgePrefetchInFlight.has(key)) continue;
+
+    const text = words[idx];
+    const ac = new AbortController();
+    edgePrefetchInFlight.set(key, ac);
+    fetchEdgeAudioBase64({ text, voice, rate, signal: ac.signal })
+      .then((audioBase64) => {
+        edgeAudioCache.set(key, audioBase64);
+      })
+      .catch(() => {
+        // ignore prefetch failures (main path will handle)
+      })
+      .finally(() => {
+        edgePrefetchInFlight.delete(key);
+      });
+  }
 }
 
 function stopAudio() {
@@ -319,24 +380,29 @@ async function speakNextWord() {
   stopAudio();
 
   try {
-    const ac = new AbortController();
-    inFlightAbort = ac;
-    const res = await fetch(`${TTS_SERVER_BASE}/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const rate = parseFloat(speedControl.value);
+    const key = edgeCacheKey(currentWordIndex, voice, rate);
+
+    let audioBase64 = edgeAudioCache.get(key);
+    if (!audioBase64) {
+      const ac = new AbortController();
+      inFlightAbort = ac;
+      audioBase64 = await fetchEdgeAudioBase64({
         text: word,
         voice,
-        rate: parseFloat(speedControl.value),
-      }),
-      signal: ac.signal,
-    });
-    if (!res.ok) throw new Error(`tts HTTP ${res.status}`);
-    const data = await res.json();
+        rate,
+        signal: ac.signal,
+      });
+      // Cache it so a restart/resume can be instant.
+      edgeAudioCache.set(key, audioBase64);
+    }
 
     if (!isSpeaking || isPaused) return;
-    audioEl = new Audio(`data:audio/mpeg;base64,${data.audioBase64}`);
+    audioEl = new Audio(`data:audio/mpeg;base64,${audioBase64}`);
     audioEl.preload = "auto";
+
+    // While this word is playing, fetch a couple ahead.
+    maybeStartEdgePrefetch(currentWordIndex);
 
     audioEl.onended = () => {
       if (!isSpeaking || isPaused) return;
@@ -389,6 +455,7 @@ startButton.addEventListener("click", async () => {
       isSpeaking = true;
       isPaused = false;
       pausedDuring = null;
+      clearEdgePrefetch(false);
       wordCountDisplay.textContent = words.length;
       updateControls();
 
@@ -460,6 +527,7 @@ resumeButton.addEventListener("click", () => {
 stopButton.addEventListener("click", () => {
   clearTimers();
   clearInFlight();
+  clearEdgePrefetch(false);
   stopAudio();
   try {
     synth.cancel();
