@@ -35,6 +35,7 @@ let wordPositions = []; // Array of word positions (start and end indices)
 let currentWordIndex = 0;
 let isSpeaking = false;
 let isPaused = false; // Track if speech is paused
+let pausedDuring = null; // "utterance" | "gap" | null (browser mode)
 let voices = []; // currently loaded voices for the selected mode
 let voiceMode = "browser"; // "edge" | "browser"
 
@@ -45,6 +46,35 @@ let currentUtterance = null;
 
 // Constants
 const DELAY_PER_CHAR = 100; // Base delay per character (in milliseconds)
+
+function isFocusInEditor() {
+  const ae = document.activeElement;
+  if (!ae) return false;
+  if (typeof ae.closest !== "function") return false;
+  return Boolean(ae.closest("#editor"));
+}
+
+function isFocusInFormControl() {
+  const ae = document.activeElement;
+  if (!ae) return false;
+  const tag = String(ae.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return true;
+  // contenteditable (outside Quill) should not be hijacked
+  return Boolean(ae.isContentEditable);
+}
+
+function blurEditor() {
+  try {
+    if (typeof quill.blur === "function") quill.blur();
+  } catch {
+    // ignore
+  }
+  try {
+    if (quill && quill.root && typeof quill.root.blur === "function") quill.root.blur();
+  } catch {
+    // ignore
+  }
+}
 
 // Function to calculate delay based on word length and multiplier
 function calculateDelay(word) {
@@ -77,6 +107,13 @@ function precomputeWordPositions(text) {
 
 function resetHighlight() {
   quill.formatText(0, quill.getLength(), { background: "" });
+}
+
+function getUiHighlightColor() {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--tts-highlight")
+    .trim();
+  return v || "rgba(183, 255, 87, 0.32)";
 }
 
 function getSelectedVoiceShortName() {
@@ -128,7 +165,7 @@ function highlightCurrentWord(wordIndex) {
     quill.formatText(0, quill.getLength(), { background: "" });
 
     // Highlight the current word
-    quill.formatText(start, end - start, { background: "yellow" });
+    quill.formatText(start, end - start, { background: getUiHighlightColor() });
 
     // Scroll to the highlighted word smoothly
     const scrollContainer = document.querySelector(".ql-editor");
@@ -211,6 +248,14 @@ async function loadVoices() {
 
 function speakNextWordBrowser() {
   if (!isSpeaking || isPaused) return;
+  // Prevent stacking multiple utterances (can happen if resume triggers a new speak)
+  try {
+    if (synth.speaking || synth.pending) {
+      return;
+    }
+  } catch {
+    // ignore
+  }
   if (currentWordIndex >= words.length) {
     isSpeaking = false;
     isPaused = false;
@@ -343,8 +388,12 @@ startButton.addEventListener("click", async () => {
 
       isSpeaking = true;
       isPaused = false;
+      pausedDuring = null;
       wordCountDisplay.textContent = words.length;
       updateControls();
+
+      // Move focus out of the editor so keyboard shortcuts work immediately.
+      blurEditor();
 
       resetHighlight();
       await loadVoices(); // choose edge if available, else browser
@@ -359,7 +408,9 @@ pauseButton.addEventListener("click", () => {
     clearInFlight();
     if (voiceMode === "browser") {
       try {
-        synth.pause();
+        // If we're currently inside (or about to start) an utterance, pause it; otherwise we're in the inter-word gap.
+        pausedDuring = (synth.speaking || synth.pending) ? "utterance" : "gap";
+        if (synth.speaking || synth.pending) synth.pause();
       } catch {
         // ignore
       }
@@ -376,12 +427,28 @@ resumeButton.addEventListener("click", () => {
     isPaused = false;
     updateControls();
     if (voiceMode === "browser") {
+      // If SpeechSynthesis is paused, resuming must NOT create a new utterance.
       try {
-        synth.resume();
+        if (synth.paused) {
+          synth.resume();
+
+          setTimeout(() => {
+            try {
+              if (isSpeaking && !isPaused && synth.paused) {
+                synth.cancel();
+                setTimeout(() => speakNextWordBrowser(), 0);
+              }
+            } catch {
+              // ignore
+            }
+          }, 150);
+        } else if (!synth.speaking && !synth.pending) {
+          speakNextWordBrowser();
+        }
       } catch {
         // ignore
       }
-      speakNextWordBrowser();
+      pausedDuring = null;
       return;
     }
 
@@ -401,6 +468,7 @@ stopButton.addEventListener("click", () => {
   }
   isSpeaking = false;
   isPaused = false;
+  pausedDuring = null;
   currentWordIndex = 0;
   updateControls();
   resetHighlight();
@@ -433,3 +501,28 @@ quill.root.addEventListener("paste", (event) => {
 
 // Load voices on page load (edge if available, else browser)
 loadVoices();
+
+// Keyboard shortcuts (when not typing inside editor)
+document.addEventListener("keydown", (e) => {
+  // Don't hijack when typing in the editor or other form controls.
+  if (isFocusInEditor()) return;
+  if (isFocusInFormControl()) return;
+
+  // Ignore modified shortcuts.
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (isSpeaking) {
+      if (isPaused) resumeButton.click();
+      else pauseButton.click();
+    }
+    return;
+  }
+
+  if (e.code === "Enter" || e.key === "Enter") {
+    e.preventDefault();
+    if (isSpeaking) stopButton.click();
+    else startButton.click();
+  }
+});

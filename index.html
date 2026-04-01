@@ -4,9 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Word-by-Word TTS</title>
-    <!-- Bootstrap CSS -->
+    <meta
+      name="description"
+      content="Word-by-word text-to-speech with precise cursor start, speed, delay, and voice selection."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Manrope:wght@300..800&display=swap"
       rel="stylesheet"
     />
     <!-- Quill CSS -->
@@ -17,74 +22,136 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="container mt-5">
-      <div class="card shadow">
-        <div class="card-body">
-          <h1 class="card-title text-center mb-4">Word-by-Word TTS</h1>
-          <!-- Quill Editor -->
-          <div id="editor" style="height: 200px"></div>
-          <div class="controls text-center mb-3">
-            <button id="start-button" class="btn btn-primary">Start</button>
-            <button id="pause-button" class="btn btn-warning" disabled>
-              Pause
-            </button>
-            <button id="resume-button" class="btn btn-success" disabled>
-              Resume
-            </button>
-            <button id="stop-button" class="btn btn-danger" disabled>
-              Stop
-            </button>
-            <hr />
-            <p>
-              If not working, try stopping and starting again. <br />Put the
-              cursor on the word you want to start from.
-            </p>
-            <hr />
-          </div>
-          <div class="settings mb-4">
-            <div class="mb-3">
-              <label for="speed-control" class="form-label"
-                >Speed: <span id="speed-value">1.0</span></label
-              >
-              <input
-                type="range"
-                class="form-range"
-                id="speed-control"
-                min="0.5"
-                max="2"
-                step="0.1"
-                value="1"
-              />
-            </div>
-            <div class="mb-3">
-              <label for="delay-control" class="form-label"
-                >Delay Multiplier: <span id="delay-value">1.0</span></label
-              >
-              <input
-                type="range"
-                class="form-range"
-                id="delay-control"
-                min="0.1"
-                max="5"
-                step="0.1"
-                value="1"
-              />
-            </div>
-            <div class="mb-3">
-              <label for="voice-select" class="form-label">Voice:</label>
-              <select id="voice-select" class="form-select" disabled>
-                <option value="">Loading voices...</option>
-              </select>
-            </div>
-          </div>
-          <div class="status text-center">
-            <p>Word Count: <span id="word-count">0</span></p>
+    <div class="bg" aria-hidden="true">
+      <div class="bg__mesh"></div>
+      <div class="bg__noise"></div>
+    </div>
+
+    <main class="app" role="main">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand__mark" aria-hidden="true"></div>
+          <div class="brand__text">
+            <div class="brand__title">Word-by-Word</div>
+            <div class="brand__subtitle">TTS studio</div>
           </div>
         </div>
-      </div>
-    </div>
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+        <div class="topbar__meta">
+          <div class="pill" title="Live word count">
+            <span class="pill__label">Words</span>
+            <span class="pill__value" id="word-count">0</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid">
+        <section class="panel panel--editor" aria-label="Editor">
+          <div class="panel__header">
+            <div class="panel__title">Script</div>
+            <div class="panel__hint">
+              Place the cursor where you want to start, then press Start.
+            </div>
+          </div>
+          <div class="editorShell">
+            <div id="editor"></div>
+          </div>
+        </section>
+
+        <aside class="panel panel--controls" aria-label="Controls">
+          <div class="panel__header">
+            <div class="panel__title">Playback</div>
+            <div class="panel__hint">
+              If it glitches, Stop then Start again.
+            </div>
+          </div>
+
+          <div class="controls">
+            <div class="actions">
+              <button id="start-button" class="btn btn--primary" type="button">
+                Start
+              </button>
+              <button
+                id="pause-button"
+                class="btn btn--soft"
+                type="button"
+                disabled
+              >
+                Pause
+              </button>
+              <button
+                id="resume-button"
+                class="btn btn--soft"
+                type="button"
+                disabled
+              >
+                Resume
+              </button>
+              <button id="stop-button" class="btn btn--danger" type="button" disabled>
+                Stop
+              </button>
+            </div>
+
+            <div class="card">
+              <div class="card__title">Timing</div>
+
+              <div class="field">
+                <div class="field__row">
+                  <label class="field__label" for="speed-control">Speed</label>
+                  <div class="field__value">
+                    <span id="speed-value">1.0</span><span class="unit">×</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  id="speed-control"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  value="1"
+                />
+                <div class="field__ticks" aria-hidden="true">
+                  <span>0.5×</span><span>1.0×</span><span>2.0×</span>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field__row">
+                  <label class="field__label" for="delay-control">Delay</label>
+                  <div class="field__value">
+                    <span id="delay-value">1.0</span><span class="unit">×</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  id="delay-control"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  value="1"
+                />
+                <div class="field__ticks" aria-hidden="true">
+                  <span>0.1×</span><span>1.0×</span><span>5×</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__title">Voice</div>
+              <div class="field">
+                <label class="field__label srOnly" for="voice-select">Voice</label>
+                <select id="voice-select" disabled>
+                  <option value="">Loading voices...</option>
+                </select>
+                <div class="field__help">
+                  Uses local Edge TTS if available, otherwise browser voices.
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
     <!-- Quill JS -->
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
     <script src="script.js"></script>
