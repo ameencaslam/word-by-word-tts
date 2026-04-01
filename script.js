@@ -261,6 +261,28 @@ function updateControls() {
 }
 
 async function loadVoices() {
+  const prevMode = voiceMode;
+  const prevIdx = Number.isFinite(parseInt(voiceSelect.value, 10))
+    ? parseInt(voiceSelect.value, 10)
+    : -1;
+  let prevEdgeShortName = null;
+  let prevBrowserKey = null;
+  try {
+    if (prevMode === "edge" && prevIdx >= 0 && Array.isArray(voices) && voices[prevIdx]) {
+      prevEdgeShortName = voices[prevIdx].shortName || null;
+    } else if (
+      prevMode === "browser" &&
+      prevIdx >= 0 &&
+      Array.isArray(voices) &&
+      voices[prevIdx]
+    ) {
+      const v = voices[prevIdx];
+      prevBrowserKey = `${v.name}||${v.lang}`;
+    }
+  } catch {
+    // ignore
+  }
+
   voiceSelect.disabled = true;
   voiceSelect.innerHTML = `<option value="">Loading voices...</option>`;
   // Try edge-tts server first (fast timeout), else fall back to browser voices
@@ -285,10 +307,21 @@ async function loadVoices() {
       voiceSelect.appendChild(option);
     });
 
-    const preferred = voices.findIndex((v) =>
-      String(v.shortName || "").includes("en-US-AriaNeural"),
-    );
-    if (preferred >= 0) voiceSelect.value = String(preferred);
+    // Preserve prior selection if possible.
+    let selected = -1;
+    if (prevEdgeShortName) {
+      selected = voices.findIndex((v) => String(v.shortName) === String(prevEdgeShortName));
+    }
+    if (selected < 0 && prevMode === "edge" && prevIdx >= 0 && prevIdx < voices.length) {
+      selected = prevIdx;
+    }
+    if (selected < 0) {
+      const preferred = voices.findIndex((v) =>
+        String(v.shortName || "").includes("en-US-AriaNeural"),
+      );
+      if (preferred >= 0) selected = preferred;
+    }
+    if (selected >= 0) voiceSelect.value = String(selected);
     voiceSelect.disabled = false;
     return;
   } catch {
@@ -304,6 +337,15 @@ async function loadVoices() {
     option.textContent = `${voice.name} (${voice.lang})`;
     voiceSelect.appendChild(option);
   });
+  // Preserve prior selection if possible.
+  let selected = -1;
+  if (prevBrowserKey) {
+    selected = voices.findIndex((v) => `${v.name}||${v.lang}` === prevBrowserKey);
+  }
+  if (selected < 0 && prevMode === "browser" && prevIdx >= 0 && prevIdx < voices.length) {
+    selected = prevIdx;
+  }
+  if (selected >= 0) voiceSelect.value = String(selected);
   voiceSelect.disabled = voices.length === 0;
 }
 
