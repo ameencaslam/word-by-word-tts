@@ -2,7 +2,7 @@
 
 A small browser tool to help you read text **without staring at the screen**: paste text into the editor and it will **speak word-by-word** while **highlighting the current word**.
 
-- **Live demo**: `https://ameencaslam.github.io/word-by-word-tts/`
+- **Live demo**: https://ameencaslam.github.io/word-by-word-tts/
 
 ---
 
