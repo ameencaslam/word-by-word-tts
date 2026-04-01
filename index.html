@@ -139,9 +139,12 @@
               <div class="card__title">Voice</div>
               <div class="field">
                 <label class="field__label srOnly" for="voice-select">Voice</label>
-                <select id="voice-select" disabled>
-                  <option value="">Loading voices...</option>
-                </select>
+                <div class="selectWrap">
+                  <select id="voice-select" disabled>
+                    <option value="">Loading voices...</option>
+                  </select>
+                  <span class="selectWrap__chev" aria-hidden="true"></span>
+                </div>
                 <div class="field__help">
                   Uses local Edge TTS if available, otherwise browser voices.
                 </div>
