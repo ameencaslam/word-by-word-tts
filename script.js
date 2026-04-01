@@ -24,16 +24,24 @@ const delayValue = document.getElementById("delay-value");
 const voiceSelect = document.getElementById("voice-select");
 const wordCountDisplay = document.getElementById("word-count");
 
-// SpeechSynthesis API
+// Local edge-tts server
+const TTS_SERVER_BASE = "http://127.0.0.1:8787";
+
+// Browser SpeechSynthesis fallback
 const synth = window.speechSynthesis;
+
 let words = []; // Array of words
 let wordPositions = []; // Array of word positions (start and end indices)
 let currentWordIndex = 0;
 let isSpeaking = false;
 let isPaused = false; // Track if speech is paused
-let voices = [];
+let voices = []; // currently loaded voices for the selected mode
+let voiceMode = "browser"; // "edge" | "browser"
+
+let audioEl = null;
+let timeoutId = null; // delay timer between words
+let inFlightAbort = null; // AbortController for fetch
 let currentUtterance = null;
-let timeoutId = null; // To track the delay timeout
 
 // Constants
 const DELAY_PER_CHAR = 100; // Base delay per character (in milliseconds)
@@ -67,43 +75,48 @@ function precomputeWordPositions(text) {
   return { words, positions };
 }
 
-// Function to speak the next word
-function speakNextWord() {
-  if (currentWordIndex < words.length && isSpeaking && !isPaused) {
-    const word = words[currentWordIndex];
-    currentUtterance = new SpeechSynthesisUtterance(word);
+function resetHighlight() {
+  quill.formatText(0, quill.getLength(), { background: "" });
+}
 
-    // Set speed (rate) from the slider
-    currentUtterance.rate = parseFloat(speedControl.value);
+function getSelectedVoiceShortName() {
+  const idx = parseInt(voiceSelect.value, 10);
+  const v = voices[idx];
+  return v ? v.shortName : null;
+}
 
-    // Set selected voice
-    const selectedVoice = voices[voiceSelect.value];
-    if (selectedVoice) {
-      currentUtterance.voice = selectedVoice;
+function getSelectedBrowserVoice() {
+  const idx = parseInt(voiceSelect.value, 10);
+  const v = voices[idx];
+  return v || null;
+}
+
+function clearInFlight() {
+  if (inFlightAbort) {
+    try {
+      inFlightAbort.abort();
+    } catch {
+      // ignore
     }
-
-    // Highlight the current word
-    highlightCurrentWord(currentWordIndex);
-
-    // Speak the word
-    synth.speak(currentUtterance);
-
-    // When the word finishes speaking, wait for the delay and then move to the next word
-    currentUtterance.onend = () => {
-      const delay = calculateDelay(word); // Calculate delay for the next word
-      timeoutId = setTimeout(() => {
-        currentWordIndex++;
-        if (isSpeaking && currentWordIndex < words.length) {
-          speakNextWord();
-        } else {
-          // Reset when done
-          isSpeaking = false;
-          isPaused = false;
-          updateControls();
-        }
-      }, delay);
-    };
   }
+  inFlightAbort = null;
+}
+
+function stopAudio() {
+  if (audioEl) {
+    try {
+      audioEl.pause();
+      audioEl.src = "";
+    } catch {
+      // ignore
+    }
+  }
+  audioEl = null;
+}
+
+function clearTimers() {
+  if (timeoutId) clearTimeout(timeoutId);
+  timeoutId = null;
 }
 
 // Function to highlight the current word in the editor
@@ -149,8 +162,42 @@ function updateControls() {
   stopButton.disabled = !isSpeaking;
 }
 
-// Load available voices
-function loadVoices() {
+async function loadVoices() {
+  voiceSelect.disabled = true;
+  voiceSelect.innerHTML = `<option value="">Loading voices...</option>`;
+  // Try edge-tts server first (fast timeout), else fall back to browser voices
+  try {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 800);
+    const res = await fetch(`${TTS_SERVER_BASE}/voices`, { signal: ac.signal });
+    clearTimeout(t);
+    if (!res.ok) throw new Error(`voices HTTP ${res.status}`);
+    const edgeVoices = await res.json(); // [{shortName,name,gender,locale}]
+    if (!Array.isArray(edgeVoices) || edgeVoices.length === 0) {
+      throw new Error("no edge voices");
+    }
+
+    voiceMode = "edge";
+    voices = edgeVoices;
+    voiceSelect.innerHTML = "";
+    voices.forEach((voice, index) => {
+      const option = document.createElement("option");
+      option.value = index;
+      option.textContent = `${voice.name} (${voice.locale || "?"})`;
+      voiceSelect.appendChild(option);
+    });
+
+    const preferred = voices.findIndex((v) =>
+      String(v.shortName || "").includes("en-US-AriaNeural"),
+    );
+    if (preferred >= 0) voiceSelect.value = String(preferred);
+    voiceSelect.disabled = false;
+    return;
+  } catch {
+    // ignore and fall back
+  }
+
+  voiceMode = "browser";
   voices = synth.getVoices();
   voiceSelect.innerHTML = "";
   voices.forEach((voice, index) => {
@@ -159,11 +206,117 @@ function loadVoices() {
     option.textContent = `${voice.name} (${voice.lang})`;
     voiceSelect.appendChild(option);
   });
-  voiceSelect.disabled = false;
+  voiceSelect.disabled = voices.length === 0;
+}
+
+function speakNextWordBrowser() {
+  if (!isSpeaking || isPaused) return;
+  if (currentWordIndex >= words.length) {
+    isSpeaking = false;
+    isPaused = false;
+    updateControls();
+    return;
+  }
+
+  const word = words[currentWordIndex];
+  currentUtterance = new SpeechSynthesisUtterance(word);
+  currentUtterance.rate = parseFloat(speedControl.value);
+
+  const selected = getSelectedBrowserVoice();
+  if (selected) currentUtterance.voice = selected;
+
+  highlightCurrentWord(currentWordIndex);
+  synth.speak(currentUtterance);
+
+  currentUtterance.onend = () => {
+    if (!isSpeaking || isPaused) return;
+    const delay = calculateDelay(word);
+    timeoutId = setTimeout(() => {
+      currentWordIndex++;
+      speakNextWordBrowser();
+    }, delay);
+  };
+}
+
+async function speakNextWord() {
+  if (!isSpeaking || isPaused) return;
+  if (currentWordIndex >= words.length) {
+    isSpeaking = false;
+    isPaused = false;
+    updateControls();
+    return;
+  }
+
+  if (voiceMode === "browser") {
+    speakNextWordBrowser();
+    return;
+  }
+
+  const voice = getSelectedVoiceShortName();
+  if (!voice) {
+    // edge mode but no voice (or server down) => try fallback
+    await loadVoices();
+    if (voiceMode === "browser") {
+      speakNextWordBrowser();
+      return;
+    }
+    isSpeaking = false;
+    isPaused = false;
+    updateControls();
+    return;
+  }
+
+  const word = words[currentWordIndex];
+  highlightCurrentWord(currentWordIndex);
+
+  clearInFlight();
+  clearTimers();
+  stopAudio();
+
+  try {
+    const ac = new AbortController();
+    inFlightAbort = ac;
+    const res = await fetch(`${TTS_SERVER_BASE}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: word,
+        voice,
+        rate: parseFloat(speedControl.value),
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) throw new Error(`tts HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (!isSpeaking || isPaused) return;
+    audioEl = new Audio(`data:audio/mpeg;base64,${data.audioBase64}`);
+    audioEl.preload = "auto";
+
+    audioEl.onended = () => {
+      if (!isSpeaking || isPaused) return;
+      const delay = calculateDelay(word);
+      timeoutId = setTimeout(() => {
+        currentWordIndex++;
+        speakNextWord();
+      }, delay);
+    };
+
+    await audioEl.play();
+  } catch (e) {
+    // If server disappears mid-run, fall back to browser voices for next run
+    await loadVoices();
+    if (!isSpeaking) return;
+    isSpeaking = false;
+    isPaused = false;
+    updateControls();
+  } finally {
+    inFlightAbort = null;
+  }
 }
 
 // Event Listeners
-startButton.addEventListener("click", () => {
+startButton.addEventListener("click", async () => {
   if (!isSpeaking) {
     const text = quill.getText().trim(); // Get plain text from Quill
     if (text !== "") {
@@ -178,7 +331,7 @@ startButton.addEventListener("click", () => {
       if (selection && selection.index >= 0) {
         // Find the word at the selection start
         const selectedWordIndex = wordPositions.findIndex(
-          (wp) => wp.start <= selection.index && wp.end >= selection.index
+          (wp) => wp.start <= selection.index && wp.end >= selection.index,
         );
         if (selectedWordIndex >= 0) {
           currentWordIndex = selectedWordIndex; // Start from the selected word
@@ -192,6 +345,9 @@ startButton.addEventListener("click", () => {
       isPaused = false;
       wordCountDisplay.textContent = words.length;
       updateControls();
+
+      resetHighlight();
+      await loadVoices(); // choose edge if available, else browser
       speakNextWord();
     }
   }
@@ -199,8 +355,17 @@ startButton.addEventListener("click", () => {
 
 pauseButton.addEventListener("click", () => {
   if (isSpeaking && !isPaused) {
-    synth.pause();
-    clearTimeout(timeoutId); // Clear the delay timeout
+    clearTimers();
+    clearInFlight();
+    if (voiceMode === "browser") {
+      try {
+        synth.pause();
+      } catch {
+        // ignore
+      }
+    } else {
+      if (audioEl) audioEl.pause();
+    }
     isPaused = true; // Set paused state
     updateControls();
   }
@@ -210,25 +375,39 @@ resumeButton.addEventListener("click", () => {
   if (isSpeaking && isPaused) {
     isPaused = false;
     updateControls();
-    speakNextWord(); // Continue speaking
-    synth.resume();
+    if (voiceMode === "browser") {
+      try {
+        synth.resume();
+      } catch {
+        // ignore
+      }
+      speakNextWordBrowser();
+      return;
+    }
+
+    if (audioEl && audioEl.paused) audioEl.play();
+    else speakNextWord();
   }
 });
 
 stopButton.addEventListener("click", () => {
-  synth.cancel();
-  clearTimeout(timeoutId); // Clear the delay timeout
+  clearTimers();
+  clearInFlight();
+  stopAudio();
+  try {
+    synth.cancel();
+  } catch {
+    // ignore
+  }
   isSpeaking = false;
   isPaused = false;
   currentWordIndex = 0;
   updateControls();
+  resetHighlight();
 });
 
 speedControl.addEventListener("input", () => {
   speedValue.textContent = speedControl.value;
-  if (currentUtterance) {
-    currentUtterance.rate = parseFloat(speedControl.value); // Update speed in real time
-  }
 });
 
 // Update delay value display
@@ -252,7 +431,5 @@ quill.root.addEventListener("paste", (event) => {
   }, 10); // Small delay to ensure the paste operation is complete
 });
 
-// Load voices when the API is ready
-if (synth.onvoiceschanged !== undefined) {
-  synth.onvoiceschanged = loadVoices;
-}
+// Load voices on page load (edge if available, else browser)
+loadVoices();
