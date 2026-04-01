@@ -228,26 +228,22 @@ function highlightCurrentWord(wordIndex) {
     // Highlight the current word
     quill.formatText(start, end - start, { background: getUiHighlightColor() });
 
-    // Scroll to the highlighted word smoothly
-    const scrollContainer = document.querySelector(".ql-editor");
-    const wordElement = quill.getBounds(start); // Get the position of the word
-    if (wordElement && scrollContainer) {
-      const wordTop = wordElement.top;
-      const wordBottom = wordElement.bottom;
-      const containerHeight = scrollContainer.clientHeight;
-      const scrollTop = scrollContainer.scrollTop;
-
-      // Calculate the new scroll position
-      if (wordTop < scrollTop) {
-        // Word is above the visible area
-        scrollContainer.scrollTo({ top: wordTop, behavior: "smooth" });
-      } else if (wordBottom > scrollTop + containerHeight) {
-        // Word is below the visible area
-        scrollContainer.scrollTo({
-          top: wordBottom - containerHeight,
-          behavior: "smooth",
-        });
-      }
+    // Center the current line vertically in the scrolling editor.
+    // Quill.getBounds() returns { top, ... } relative to .ql-container (see Quill core).
+    const scrollContainer = quill.scrollingContainer || quill.root;
+    const bounds = quill.getBounds(start);
+    if (bounds && scrollContainer && quill.container) {
+      const h = bounds.height || Math.max(1, bounds.bottom - bounds.top);
+      const containerRect = quill.container.getBoundingClientRect();
+      const editorRect = scrollContainer.getBoundingClientRect();
+      const wordTopViewport = containerRect.top + bounds.top;
+      const wordCenterY = wordTopViewport + h / 2;
+      const editorCenterY = editorRect.top + scrollContainer.clientHeight / 2;
+      let targetScrollTop =
+        scrollContainer.scrollTop + (wordCenterY - editorCenterY);
+      const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+      targetScrollTop = Math.min(Math.max(0, targetScrollTop), maxScroll);
+      scrollContainer.scrollTo({ top: targetScrollTop, behavior: "smooth" });
     }
   }
 }
